@@ -39,7 +39,7 @@ object Main extends App {
     ActorMaterializerSettings(system).withSupervisionStrategy(decider))
 
   val commandSink =
-    Source.actorRef[TreeCommand](300, OverflowStrategy.dropHead)
+    Source.actorRef[TreeCommand](1000, OverflowStrategy.dropHead)
       .addAttributes(ActorAttributes.supervisionStrategy(decider))
       .log("command", v => v)
       .via(treeCommandEncoder)
@@ -69,6 +69,18 @@ object Main extends App {
               }
           }
         }
+      } ~
+      path("targetcolor") {
+        post {
+          parameters(('red.as[Int], 'green.as[Int], 'blue.as[Int])) {
+            case (red, green, blue) =>
+              complete {
+                val command = Coproduct[TreeCommand](SetLedTarget(led, new Color(red, green, blue)))
+                commandActor ! command
+                HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>Send command $command</h1>")
+              }
+          }
+        }
       }
     } ~
   path("twinkle") {
@@ -82,7 +94,7 @@ object Main extends App {
       }
     }
   }
-  val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+  val bindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8080)
 
   log.info(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
   StdIn.readLine()

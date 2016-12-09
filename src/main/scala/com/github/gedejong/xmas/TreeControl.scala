@@ -36,9 +36,11 @@ trait TreeModel {
 
   case class SetLed(ledNr: Int, color: Color)
 
+  case class SetLedTarget(ledNr: Int, color: Color)
+
   case class SetFlicker(flicker: Int)
 
-  type TreeCommand = SetLed :+: SetFlicker :+: CNil
+  type TreeCommand = SetLedTarget :+: SetFlicker :+: SetLed :+: CNil
 }
 
 trait TreeCodec extends TreeModel {
@@ -53,8 +55,9 @@ trait TreeCodec extends TreeModel {
       (color: Color) => ((color.getRed, color.getGreen), color.getBlue))
 
   val setLedCodec: Codec[SetLed] = (uint8 ~ rgbCodec).xmap(SetLed, unlift(SetLed.unapply))
+  val setLedTargetCodec: Codec[SetLedTarget] = (uint8 ~ rgbCodec).xmap(SetLedTarget, unlift(SetLedTarget.unapply))
   val setFlickerCodec: Codec[SetFlicker] = uint8.as[SetFlicker]
-  val treeCommandCodec = (setLedCodec :+: setFlickerCodec).discriminatedByIndex(uint8)
+  val treeCommandCodec = (setLedTargetCodec :+: setFlickerCodec :+: setLedCodec).discriminatedByIndex(uint8)
 }
 
 trait TreeFormat extends TreeModel {
@@ -92,7 +95,5 @@ object TreeControl extends TreeModel with TreeCodec {
     Flow[TreeCommand]
       .map(tc => treeCommandCodec.encode(tc).map(_.toByteVector.toByteString))
       .collect { case Attempt.Successful(bs) => bs }
-
-
 
 }
