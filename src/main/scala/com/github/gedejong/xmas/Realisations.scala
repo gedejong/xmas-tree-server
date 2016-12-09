@@ -2,13 +2,15 @@ package com.github.gedejong.xmas
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.{ HttpMethods, HttpRequest }
+import akka.http.scaladsl.model.headers.RawHeader
+import akka.http.scaladsl.model.{ HttpHeader, HttpMethods, HttpRequest }
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.{ ActorMaterializer, ActorMaterializerSettings }
 import play.api.libs.functional.syntax._
 import play.api.libs.json.Reads._
 import play.api.libs.json._
 
+import scala.collection.immutable
 import scala.concurrent.Future
 
 case class FeatureCollection(`type`: String, srid: Int, features: Seq[Feature])
@@ -94,7 +96,10 @@ object Realisations extends PlayJsonSupport with FeatureFormats {
 
   def fetchFeatures(): Future[FeatureCollection] = {
     for {
-      response <- Http().singleRequest(HttpRequest(method = HttpMethods.GET, uri = s"https://dct-api-development.simacan.com/api/geo/ahold/client/realisatie"))
+      response <- Http().singleRequest(HttpRequest(
+        method = HttpMethods.GET,
+        uri = s"https://dct-api-development.simacan.com/api/geo/${Config.retailer}/client/realisatie",
+        headers = immutable.Seq(RawHeader("Security-Token", Config.token))))
       entity <- Unmarshal(response.entity).to[FeatureCollection]
     } yield entity
   }
