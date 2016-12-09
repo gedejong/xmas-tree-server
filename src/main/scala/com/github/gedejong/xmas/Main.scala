@@ -19,10 +19,6 @@ import shapeless.Coproduct
 import scala.io.StdIn
 import scala.io.StdIn
 
-/**
-  * Created by edejong on 08-12-2016.
-  */
-
 object Main extends App {
 
   import TreeControl._
@@ -30,7 +26,7 @@ object Main extends App {
   implicit val system = ActorSystem("xmas-tree-system")
   implicit val executionContext = system.dispatcher
   val log = Logging(system.eventStream, "MainLogging")
-  val decider: Supervision.Decider = { case e =>
+  val decider: Supervision.Decider = { e =>
     log.warning("Unhandled exception in stream", e)
     Supervision.Restart
   }
@@ -85,7 +81,7 @@ object Main extends App {
     } ~
   path("twinkle") {
     post {
-      parameters(('flicker.as[Int])) { flicker =>
+      parameters('flicker.as[Int]) { flicker =>
         complete {
           val flicker1 = Coproduct[TreeCommand](SetFlicker(flicker))
           commandActor ! flicker1

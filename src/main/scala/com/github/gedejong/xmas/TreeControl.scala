@@ -28,10 +28,6 @@ object AkkaScodecInterop {
 
 }
 
-/**
-  * Created by edejong on 08-12-2016.
-  */
-
 trait TreeModel {
 
   case class SetLed(ledNr: Int, color: Color)
