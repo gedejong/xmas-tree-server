@@ -39,12 +39,12 @@ object Main extends App {
     ActorMaterializerSettings(system).withSupervisionStrategy(decider))
 
   val commandSink =
-    Source.actorRef[TreeCommand](100, OverflowStrategy.dropHead)
+    Source.actorRef[TreeCommand](300, OverflowStrategy.dropHead)
       .addAttributes(ActorAttributes.supervisionStrategy(decider))
       .log("command", v => v)
       .via(treeCommandEncoder)
       .log("encoded", bs => bs.toVector.mkString(", "))
-      .via(treeBinary)
+      .via(treeBinary(args(0)))
       .to(Sink.foreach(log.info("Received {}", _)))
 
   val commandActor = commandSink.run()(materializer)
@@ -63,7 +63,7 @@ object Main extends App {
           } ~
           parameters('color.as[String]) { color =>
               complete {
-                val command = SetLed(led, Color.decode(color))
+                val command = Coproduct[TreeCommand](SetLed(led, Color.decode(color)))
                 commandActor ! command
                 HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>Send command $command</h1>")
               }
@@ -75,7 +75,7 @@ object Main extends App {
     post {
       parameters(('flicker.as[Int])) { flicker =>
         complete {
-          val flicker1 = SetFlicker(flicker)
+          val flicker1 = Coproduct[TreeCommand](SetFlicker(flicker))
           commandActor ! flicker1
           HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>Send command $flicker1</h1>")
         }

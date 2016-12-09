@@ -10,6 +10,16 @@ resolvers += Resolver.sonatypeRepo("snapshots")
 
 resolvers += "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/"
 
+maintainer := "Edwin de Jong <edejong@fastmail.fm>"
+
+packageSummary := "XMas tree controller"
+
+packageDescription := """A package which controls the leds in a christmas tree ."""
+
+enablePlugins(JavaAppPackaging)
+enablePlugins(LinuxPlugin)
+enablePlugins(DebianPlugin)
+
 libraryDependencies ++= Seq(
   // Flow (akka-streams serial)
   "ch.jodersky" %% "flow-core" % "3.0.4",

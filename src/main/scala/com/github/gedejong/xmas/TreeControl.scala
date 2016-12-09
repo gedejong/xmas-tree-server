@@ -9,6 +9,7 @@ import akka.util.ByteString
 import ch.jodersky.flow.SerialSettings
 import ch.jodersky.flow.stream.Serial
 import ch.jodersky.flow.stream.Serial.Connection
+import com.typesafe.config.Config
 import scodec.Attempt
 import scodec.bits.ByteVector
 import shapeless.{:+:, CNil}
@@ -44,19 +45,16 @@ trait TreeCodec extends TreeModel {
 
   import scodec._
   import codecs._
+  import play.api.libs.functional.syntax._
 
   val rgbCodec: Codec[Color] = (uint8 ~ uint8 ~ uint8)
     .xmap(
       { case ((r, g), b) => new Color(r, g, b) },
       (color: Color) => ((color.getRed, color.getGreen), color.getBlue))
 
-  import play.api.libs.functional.syntax._
-  val setLedCodec: Codec[SetLed] = (uint8 ~ rgbCodec).
-    xmap(SetLed, unlift(SetLed.unapply))
+  val setLedCodec: Codec[SetLed] = (uint8 ~ rgbCodec).xmap(SetLed, unlift(SetLed.unapply))
   val setFlickerCodec: Codec[SetFlicker] = uint8.as[SetFlicker]
-
-  val treeCommandCodec: Codec[TreeCommand] with KnownDiscriminatorType[Int] =
-    (setLedCodec :+: setFlickerCodec).discriminatedByIndex(uint8)
+  val treeCommandCodec = (setLedCodec :+: setFlickerCodec).discriminatedByIndex(uint8)
 }
 
 trait TreeFormat extends TreeModel {
@@ -87,8 +85,8 @@ trait TreeFormat extends TreeModel {
 object TreeControl extends TreeModel with TreeCodec {
   import AkkaScodecInterop._
 
-  def treeBinary(implicit actorSystem: ActorSystem): Flow[ByteString, ByteString, Future[Connection]] =
-    Serial().open("/dev/ttyp3", SerialSettings(baud = 9600))
+  def treeBinary(port: String)(implicit actorSystem: ActorSystem): Flow[ByteString, ByteString, Future[Connection]] =
+    Serial().open(port, SerialSettings(baud = 9600))
 
   val treeCommandEncoder: Flow[TreeCommand, ByteString, NotUsed] =
     Flow[TreeCommand]
