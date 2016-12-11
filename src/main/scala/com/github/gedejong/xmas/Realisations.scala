@@ -1,11 +1,12 @@
 package com.github.gedejong.xmas
 
-import akka.actor.ActorSystem
+import akka.actor.{ActorSystem, Cancellable}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.headers.RawHeader
-import akka.http.scaladsl.model.{ HttpHeader, HttpMethods, HttpRequest }
+import akka.http.scaladsl.model.{ HttpMethods, HttpRequest}
 import akka.http.scaladsl.unmarshalling.Unmarshal
-import akka.stream.{ ActorMaterializer, ActorMaterializerSettings }
+import akka.stream.scaladsl.{ Source}
+import akka.stream.{ActorMaterializer, ActorMaterializerSettings}
 import play.api.libs.functional.syntax._
 import play.api.libs.json.Reads._
 import play.api.libs.json._
@@ -98,9 +99,15 @@ object Realisations extends PlayJsonSupport with FeatureFormats {
     for {
       response <- Http().singleRequest(HttpRequest(
         method = HttpMethods.GET,
-        uri = s"https://dct-api-development.simacan.com/api/geo/${Config.retailer}/client/realisatie",
-        headers = immutable.Seq(RawHeader("Security-Token", Config.token))))
+        uri = s"https://dct-api-development.simacan.com/api/geo/${XMasConfig.retailer}/client/realisatie",
+        headers = immutable.Seq(RawHeader("Security-Token", XMasConfig.token))))
       entity <- Unmarshal(response.entity).to[FeatureCollection]
     } yield entity
   }
+
+  import scala.concurrent.duration._
+  val realisationsFlow: Source[Feature, Cancellable] =
+    Source.tick(1.second, 10.second, None)
+    .mapAsync(1)(_ => fetchFeatures)
+    .mapConcat[Feature](features => features.features.to[scala.collection.immutable.Seq])
 }

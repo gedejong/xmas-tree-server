@@ -2,7 +2,7 @@ package com.github.gedejong.xmas
 
 import com.typesafe.config.ConfigFactory
 
-object Config {
+object XMasConfig {
   private[this] val config = ConfigFactory.load()
 
   val retailer = config.getString("xmas-tree-server.retailer")
