@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-for j in {0..20}; do 
+for j in {0..2000}; do 
     for i in {0..45}; do 
         curl --data '' "http://10.0.14.153:8080/led/$i/targetcolor?red=0&green=0&blue=255"; 
     done;  
