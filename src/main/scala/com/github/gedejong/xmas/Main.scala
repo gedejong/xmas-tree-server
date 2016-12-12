@@ -9,7 +9,7 @@ import akka.http.scaladsl.server.Directives._
 import akka.io.IO
 import akka.stream._
 import akka.stream.scaladsl.{Sink, Source}
-import akka.actor.ActorSystem
+import akka.actor.{Actor, ActorSystem}
 import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
@@ -91,6 +91,31 @@ object Main extends App {
     }
   }
   val bindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8080)
+
+
+  class PollingActor extends Actor {
+    val ledCount = 46
+
+    case class LedState(arriving: Option[DateTime] = None)
+
+    sealed trait PollingActorMessage
+    case object Poll extends PollingActorMessage
+
+    import scala.concurrent.duration._
+    import akka.pattern.pipe
+
+    system.scheduler.schedule(1000.millis, 1000.millis, self, Poll)
+
+    def receive: Receive = currentState(ledStates = Seq.fill(ledCount)(LedState))
+
+    def currentState(ledStates: Seq[LedState]): Receive = {
+      case Poll => Realisations.fetchFeatures() pipeTo self
+      case fc: FeatureCollection => for (f <- fc.features) self ! f
+      case f: Feature =>
+        val properties = f.properties
+        properties.
+    }
+  }
 
   log.info(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
   StdIn.readLine()
