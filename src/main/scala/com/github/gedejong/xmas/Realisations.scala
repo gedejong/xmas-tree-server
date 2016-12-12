@@ -1,21 +1,19 @@
 package com.github.gedejong.xmas
 
-import akka.NotUsed
-import akka.actor.{ActorSystem, Cancellable}
+import akka.actor.{ ActorSystem, Cancellable }
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.Http.HostConnectionPool
 import akka.http.scaladsl.model.headers.RawHeader
-import akka.http.scaladsl.model.{HttpMethods, HttpRequest, HttpResponse}
+import akka.http.scaladsl.model.{ HttpMethods, HttpRequest, HttpResponse }
 import akka.http.scaladsl.unmarshalling.Unmarshal
-import akka.stream.scaladsl.{Flow, Keep, Source}
-import akka.stream.{ActorMaterializer, ActorMaterializerSettings, ThrottleMode}
+import akka.stream.scaladsl.{ Flow, Keep, Source }
+import akka.stream.{ ActorMaterializer, ActorMaterializerSettings, ThrottleMode }
 import play.api.libs.functional.syntax._
 import play.api.libs.json.Reads._
 import play.api.libs.json._
 
 import scala.collection.immutable
-import scala.concurrent.Future
-import scala.util.{Success, Try}
+import scala.util.{ Success, Try }
 
 case class FeatureCollection(`type`: String, srid: Int, features: Seq[Feature])
 
@@ -23,8 +21,11 @@ case class Feature(`type`: String, srid: Int, geometry: Point, properties: Featu
 
 case class Point(`type`: String, coordinates: Seq[Double])
 
-case class Coordinates(lat: Double, lon: Double) {
-  def apply(coordinates: Seq[Double]) = Coordinates(coordinates(1), coordinates(0))
+case class Coordinates(lat: Double, lon: Double)
+
+object Coordinates {
+  def fromPoint(point: Point) = fromCoords(point.coordinates)
+  def fromCoords(coordinates: Seq[Double]) = Coordinates(coordinates(1), coordinates(0))
 }
 
 case class FeatureProps(

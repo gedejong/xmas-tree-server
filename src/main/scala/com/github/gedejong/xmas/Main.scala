@@ -18,8 +18,9 @@ import scala.concurrent.Future
 import scala.io.StdIn
 
 object Main extends App {
-
   import TreeControl._
+  import CoordOps._
+  import LedCoordMapping._
 
   implicit val system = ActorSystem("xmas-tree-system")
   implicit val executionContext = system.dispatcher
@@ -33,18 +34,10 @@ object Main extends App {
   implicit val materializer = ActorMaterializer(
     ActorMaterializerSettings(system).withSupervisionStrategy(decider))
 
-  val (minLat, maxLat) = (50.5f, 53f)
-  val ledCount = 46
-
-  def pointToLed(point: Point): Int = {
-    val latitude = point.coordinates(1)
-    min(ledCount, max(0, round(((latitude.toFloat - minLat) / (maxLat - minLat)) * ledCount)))
-  }
-
   def featureToDazzle(feature: Feature): TreeCommand = {
     val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
     Coproduct[TreeCommand](
-      SetLed(pointToLed(feature.geometry), new Color(
+      SetLed(coordToLed(Coordinates.fromPoint(feature.geometry)), new Color(  // TODO Please doublecheck if geometry is truly in lon lat order truly contains lat (and not lon)
         (determinedIntensity * 256).toInt,
         (determinedIntensity * 256).toInt,
         (determinedIntensity * 256).toInt)))
@@ -55,7 +48,7 @@ object Main extends App {
   val lossenLeds: Flow[Feature, TreeCommand, NotUsed] =
     Flow[Feature].collect {
       case feature if feature.properties.activityString.toLowerCase == "lossen" =>
-        pointToLed(feature.geometry)
+        coordToLed(Coordinates.fromPoint(feature.geometry))                 // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
     }.groupBy(ledCount * 2, identity)
       .flatMapConcat((led: Int) =>
         Source.single(Coproduct[TreeCommand](SetLedTarget(led, new Color(200, 100, 100))))
