@@ -4,20 +4,20 @@ import java.awt.Color
 import java.lang.Math._
 
 import akka.NotUsed
-import akka.actor.{ActorRef, ActorSystem, Cancellable}
+import akka.actor.{ActorRef, ActorSystem, PoisonPill}
 import akka.event.Logging
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.Http.HostConnectionPool
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import akka.stream._
-import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Keep, Merge, RunnableGraph, Sink, Source}
+import akka.stream.scaladsl.{Flow, RunnableGraph, Sink, Source}
 import shapeless.Coproduct
 
 import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.io.StdIn
 
-object Main extends App {
+object Main extends App with LedBehaviour {
   import TreeControl._
   import CoordOps._
   import LedCoordMapping._
@@ -25,65 +25,47 @@ object Main extends App {
   implicit val system = ActorSystem("xmas-tree-system")
   implicit val executionContext = system.dispatcher
   val log = Logging(system.eventStream, "MainLogging")
+
   val decider: Supervision.Decider = { e =>
     log.warning("Unhandled exception in stream", e)
-    e.printStackTrace()
     Supervision.Restart
   }
 
-  implicit val materializer = ActorMaterializer(
-    ActorMaterializerSettings(system).withSupervisionStrategy(decider))
+  implicit val materializer = ActorMaterializer(ActorMaterializerSettings(system).withSupervisionStrategy(decider))
 
-  def featureToDazzle(feature: Feature): TreeCommand = {
-    val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
-    Coproduct[TreeCommand](
-      SetLed(coordToLed(Coordinates.fromPoint(feature.geometry)), new Color(  // TODO Please doublecheck if geometry is truly in lon lat order truly contains lat (and not lon)
-        (determinedIntensity * 256).toInt,
-        (determinedIntensity * 256).toInt,
-        (determinedIntensity * 256).toInt)))
-  }
-
-  import scala.concurrent.duration._
-
-  val lossenLeds: Flow[Feature, TreeCommand, NotUsed] =
+  val featureToLedCommand: Flow[Feature, SendToLed, NotUsed] =
     Flow[Feature].collect {
       case feature if feature.properties.activityString.toLowerCase == "lossen" =>
-        coordToLed(Coordinates.fromPoint(feature.geometry))                 // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
-    }.groupBy(ledCount * 2, identity)
-      .flatMapConcat((led: Int) =>
-        Source.single(Coproduct[TreeCommand](SetLedTarget(led, new Color(200, 100, 100))))
-          .merge(
-            Source.single(Coproduct[TreeCommand](SetLedTarget(led, new Color(0, 0, 150))))
-              .delay(1.seconds, DelayOverflowStrategy.dropHead)))
-      .mergeSubstreamsWithParallelism(ledCount * 2)
+        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(200, 100, 100), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
 
-  val featureToDazzleFlow: Flow[Feature, TreeCommand, NotUsed] =
-    Flow[Feature].map(featureToDazzle)
+      case feature if feature.properties.activityString.toLowerCase == "laden" =>
+        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(200, 200, 100), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
 
-  val g = Flow.fromGraph(GraphDSL.create() { implicit b =>
-    import GraphDSL.Implicits._
-    val bcast = b.add(Broadcast[Feature](2))
-    val merge = b.add(Merge[TreeCommand](2))
+      case feature =>
+        val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
+        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Blink(                                          // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
+          new Color(
+            (determinedIntensity * 256).toInt,
+            (determinedIntensity * 256).toInt,
+            (determinedIntensity * 256).toInt)))
+    }
 
-    bcast.out(0) ~> featureToDazzleFlow ~> merge.in(0)
-    bcast.out(1) ~> lossenLeds ~> merge.in(1)
-
-    FlowShape(bcast.in, merge.out)
-  })
-
-  val realisationsFlow: Source[TreeCommand, (Cancellable, HostConnectionPool)] = Realisations.realisationsFlow.via(g)
-
-  val commandSink: RunnableGraph[(ActorRef, (Cancellable, HostConnectionPool))] =
+  val commandSink: RunnableGraph[ActorRef] =
     Source.actorRef[TreeCommand](1000, OverflowStrategy.dropHead)
       .addAttributes(ActorAttributes.supervisionStrategy(decider))
-      .mergeMat(realisationsFlow)(Keep.both)
       .log("command", v => v)
       .via(treeCommandEncoder)
-      .log("encoded", bs => bs.toVector.mkString(", "))
       .via(treeBinary(args(0)))
       .to(Sink.foreach(p => log.info(s"Received $p")))
 
-  val (commandActor, (realisationsStreamCancellable, connectionPool)) = commandSink.run()(materializer)
+  val commandActor = commandSink.run()(materializer)
+
+  val ledsActor = system.actorOf(LedsActor.props(commandActor))
+
+  val (cancellable, hostConnectionPool) =
+    Realisations.realisationsFlow
+      .via(featureToLedCommand)
+      .to(Sink.actorRef(ledsActor, PoisonPill)).run()(materializer)
 
   val route =
     pathPrefix("led" / IntNumber) { led =>
@@ -136,11 +118,11 @@ object Main extends App {
   StdIn.readLine()
   bindingFuture.flatMap(_.unbind()).onComplete { _ =>
     log.info("Cancelling realisations stream")
-    Future(realisationsStreamCancellable.cancel())
+    Future(cancellable.cancel())
     log.info("Shutting down actor system")
     system.terminate()
     log.info("Stopping rct connection pool")
-    connectionPool.shutdown().onComplete { _ =>
+    hostConnectionPool.shutdown().onComplete { _ =>
       log.info("Stopped rct connection pool")
       system.terminate()
     }
