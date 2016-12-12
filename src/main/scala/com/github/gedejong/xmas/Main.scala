@@ -58,9 +58,9 @@ object Main extends App {
         pointToLed(feature.geometry)
     }.groupBy(ledCount * 2, identity)
       .flatMapConcat((led: Int) =>
-        Source.single(Coproduct[TreeCommand](SetLedTarget(led, Color.RED)))
+        Source.single(Coproduct[TreeCommand](SetLedTarget(led, new Color(200, 100, 100))))
           .merge(
-            Source.single(Coproduct[TreeCommand](SetLedTarget(led, Color.GREEN)))
+            Source.single(Coproduct[TreeCommand](SetLedTarget(led, new Color(0, 0, 150))))
               .delay(1.seconds, DelayOverflowStrategy.dropHead)))
       .mergeSubstreamsWithParallelism(ledCount * 2)
 
