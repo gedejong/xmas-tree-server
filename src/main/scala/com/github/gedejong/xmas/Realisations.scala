@@ -111,12 +111,7 @@ object Realisations extends PlayJsonSupport with FeatureFormats {
       .log("realisation-tick", identity)
       .viaMat(connectionPool)(Keep.both)
       .log("request-result", identity)
-      .collect {
-        case (Success(response), _) =>
-          val fut = Unmarshal(response.entity).to[FeatureCollection]
-          fut.onFailure { case e => e.printStackTrace(); throw e }
-          fut
-      }
+      .collect { case (Success(response), _) => Unmarshal(response.entity).to[FeatureCollection] }
       .mapAsync(1)(identity)
   }
 
