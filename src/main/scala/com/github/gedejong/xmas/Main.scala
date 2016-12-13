@@ -35,21 +35,24 @@ object Main extends App {
 
   import LedBehaviour._
 
-  val featureToLedCommand: Flow[Feature, SendToLed, NotUsed] =
+  val featureToLedCommand: Flow[Feature, LedsCommand, NotUsed] =
     Flow[Feature].collect {
       case feature if feature.properties.activityString.toLowerCase == "lossen" =>
-        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 50, 50), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
+        val delay = feature.properties.timestamp.millis
+        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 50, 50), 2.seconds)), delay)
 
       case feature if feature.properties.activityString.toLowerCase == "laden" =>
-        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(50, 255, 50), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
+        val delay = feature.properties.timestamp.millis
+        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(50, 255, 50), 2.seconds)), delay)
 
       case feature =>
         val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
-        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Blink(                                          // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
+        val delay = feature.properties.timestamp.millis
+        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Blink(                                          // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
           new Color(
             (determinedIntensity * 256).toInt,
             (determinedIntensity * 256).toInt,
-            (determinedIntensity * 256).toInt)))
+            (determinedIntensity * 256).toInt))), delay)
     }
 
   val commandSink: RunnableGraph[ActorRef] =

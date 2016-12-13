@@ -124,11 +124,14 @@ object Realisations extends PlayJsonSupport with FeatureFormats {
   val realisationsFlow: Source[Feature, (Cancellable, HostConnectionPool)] =
     fetchFeatures
       .filter(fc => !fc.features.isEmpty)
-      .map { fc =>
-        val maxTimestamp = fc.features.map(f => f.properties.timestamp).max
-        fc.copy(features = fc.features.filter(f => f.properties.timestamp > maxTimestamp - (5 * 1000)))
+        .sliding(2, 1)
+      .map { case Seq(oldFc, newFc) =>
+        val maxOldTimestamp = oldFc.features.map(f => f.properties.timestamp).max
+        newFc.copy(features =
+          newFc.features
+            .filter(f => f.properties.timestamp > maxOldTimestamp)
+            .map(f => f.copy(properties = f.properties.copy(timestamp = f.properties.timestamp - maxOldTimestamp))))
       }
       .mapConcat[Feature](features => features.features.to[scala.collection.immutable.Seq])
-      .throttle(1, 100.millis, 1, ThrottleMode.shaping)
       .log("feature", identity)
 }

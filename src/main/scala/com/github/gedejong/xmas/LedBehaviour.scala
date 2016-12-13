@@ -14,5 +14,9 @@ object LedBehaviour {
 
   case class Permanent(color: Color) extends LedCommand
 
-  case class SendToLed(led: Int, ledCommand: LedCommand)
+  sealed trait LedsCommand
+
+  case class SendToLed(led: Int, ledCommand: LedCommand) extends LedsCommand
+
+  case class Delayed(sendToLed: SendToLed, duration: FiniteDuration) extends LedsCommand
 }

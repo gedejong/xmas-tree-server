@@ -19,6 +19,8 @@ class LedsActor(controller: ActorRef) extends Actor with ActorLogging {
       newActor ! command
       context become managing(map + (led -> newActor))
 
+    case Delayed(cmd, delay) => context.system.scheduler.scheduleOnce(delay, self, cmd)(context.system.dispatcher)
+
     case m =>
       log.warning(s"Unknown message: $m")
   }
