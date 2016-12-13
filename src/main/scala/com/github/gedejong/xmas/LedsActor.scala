@@ -1,12 +1,13 @@
 package com.github.gedejong.xmas
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import LedBehaviour._
 
 object LedsActor {
   def props(controller: ActorRef) = Props(classOf[LedsActor], controller)
 }
 
-class LedsActor(controller: ActorRef) extends Actor with LedBehaviour {
+class LedsActor(controller: ActorRef) extends Actor with ActorLogging {
   override def receive: Receive = managing(Map())
 
   def managing(map: Map[Int, ActorRef]): Receive = {
@@ -17,5 +18,8 @@ class LedsActor(controller: ActorRef) extends Actor with LedBehaviour {
       val newActor = context.actorOf(LedActor.props(led, controller))
       newActor ! command
       context become managing(map + (led -> newActor))
+
+    case m =>
+      log.warning(s"Unknown message: $m")
   }
 }

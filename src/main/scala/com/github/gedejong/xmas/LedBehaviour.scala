@@ -4,10 +4,7 @@ import java.awt.Color
 
 import scala.concurrent.duration.FiniteDuration
 
-/**
-  * Created by edejong on 12-12-2016.
-  */
-trait LedBehaviour {
+object LedBehaviour {
 
   trait LedCommand
 

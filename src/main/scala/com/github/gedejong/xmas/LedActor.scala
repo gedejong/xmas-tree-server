@@ -11,9 +11,10 @@ object LedActor {
   def props(led: Int, controller: ActorRef) = Props(classOf[LedActor], led, controller)
 }
 
-class LedActor(led: Int, controller: ActorRef) extends Actor with LedBehaviour with TreeModel {
+class LedActor(led: Int, controller: ActorRef) extends Actor with TreeModel {
+  import LedBehaviour._
 
-  override def receive = permanent(Color.BLACK)
+  override def receive = permanent(new Color(30, 0, 100))
 
   def permanent(permanentColor: Color): Receive = {
     case Blink(color) => doBlink(color)

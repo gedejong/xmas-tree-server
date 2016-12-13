@@ -17,7 +17,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.io.StdIn
 
-object Main extends App with LedBehaviour {
+object Main extends App {
   import TreeControl._
   import CoordOps._
   import LedCoordMapping._
@@ -33,13 +33,15 @@ object Main extends App with LedBehaviour {
 
   implicit val materializer = ActorMaterializer(ActorMaterializerSettings(system).withSupervisionStrategy(decider))
 
+  import LedBehaviour._
+
   val featureToLedCommand: Flow[Feature, SendToLed, NotUsed] =
     Flow[Feature].collect {
       case feature if feature.properties.activityString.toLowerCase == "lossen" =>
-        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(200, 100, 100), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
+        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 50, 50), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
 
       case feature if feature.properties.activityString.toLowerCase == "laden" =>
-        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(200, 200, 100), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
+        SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(50, 255, 50), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
 
       case feature =>
         val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
