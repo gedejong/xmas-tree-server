@@ -19,7 +19,6 @@ import scala.io.StdIn
 
 object Main extends App {
   import TreeControl._
-  import CoordOps._
   import LedCoordMapping._
 
   implicit val system = ActorSystem("xmas-tree-system")
@@ -52,7 +51,7 @@ object Main extends App {
           new Color(
             (determinedIntensity * 256).toInt,
             (determinedIntensity * 256).toInt,
-            (determinedIntensity * 256).toInt))), delay)
+            (determinedIntensity * 50).toInt))), delay)
     }
 
   val commandSink: RunnableGraph[ActorRef] =
@@ -64,6 +63,8 @@ object Main extends App {
       .to(Sink.foreach(p => log.info(s"Received $p")))
 
   val commandActor = commandSink.run()(materializer)
+
+  commandActor ! Coproduct[TreeCommand](SetFlicker(200))
 
   val ledsActor = system.actorOf(LedsActor.props(commandActor))
 
