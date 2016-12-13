@@ -43,7 +43,7 @@ object Main extends App {
         SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(50, 255, 50), 2.seconds)) // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
 
       case feature =>
-        val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
+        val determinedIntensity = max(50d, min(130d, feature.properties.speed.getOrElse(50d))) / (130d * 3d) + .66
         SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Blink(                                          // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
           new Color(
             (determinedIntensity * 256).toInt,
