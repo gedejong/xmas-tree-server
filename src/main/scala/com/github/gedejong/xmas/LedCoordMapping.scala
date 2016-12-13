@@ -1,17 +1,17 @@
 package com.github.gedejong.xmas
 
-import CoordOps._
-
 case class LedCoord(led: Int, coord: PseudoMercator)
 
 object LedCoordMapping {
+  import CoordOps._
+  import MapValue._
+
   val minLatLon = LatLonDeg(51f, 4.5f)
   val maxLatLon = LatLonDeg(53f, 7f)
-  val ledCount = ledPoints.length
 
-  case class XY(x: Double, y: Double)
+  private[this] case class XY(x: Double, y: Double)
 
-  def ledPoints: Seq[XY] = Seq(
+  private[this] def ledPoints: Seq[XY] = Seq(
     XY(0, 0),
     XY(1, 1),
     XY(2, 2),
@@ -68,22 +68,16 @@ object LedCoordMapping {
     val rawMinY = rawCoordToLedMapping.map(_._1.y).min
     val rawMaxX = rawCoordToLedMapping.map(_._1.x).max
     val rawMaxY = rawCoordToLedMapping.map(_._1.y).max
-    val rawDeltaX = rawMaxX - rawMinX
-    val rawDeltaY = rawMaxY - rawMinY
 
     val zoomLevel = 0.0
     val boundsBottomLeft = minLatLon.toPseudoMercator(zoomLevel)
     val boundsTopRight = maxLatLon.toPseudoMercator(zoomLevel)
-    val boundsDeltaX = boundsTopRight.x - boundsBottomLeft.x
-    val boundsDeltaY = boundsTopRight.y - boundsBottomLeft.y
 
-    val ret = rawCoordToLedMapping.map { case (XY(x, y), led) =>
-      val coordX = boundsDeltaX * (x - rawMinX) / rawDeltaX + boundsBottomLeft.x
-      val coordY = boundsDeltaY * (y - rawMinY) / rawDeltaY + boundsBottomLeft.y
+    rawCoordToLedMapping.map { case (XY(x, y), led) =>
+      val coordX = mapValueToBounds(x, rawMinX, rawMaxX, boundsBottomLeft.x, boundsTopRight.x)
+      val coordY = mapValueToBounds(y, rawMinY, rawMaxY, boundsTopRight.y, boundsBottomLeft.y)
       LedCoord(led, PseudoMercator(coordX, coordY, zoomLevel))
-    }.sortBy(_.coord.y)
-    println(ret)
-    ret
+    }.sortBy(lc => lc.coord.y -> lc.coord.x)
   }
 
   def coordToLed(coord: Coordinates): Int = {
@@ -105,4 +99,6 @@ object LedCoordMapping {
       xDelta * xDelta + yDelta * yDelta
     }.led
   }
+
+  def ledCount = coordToLedMapping.length
 }
