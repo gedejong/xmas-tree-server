@@ -31,7 +31,7 @@ class LedActor(led: Int, controller: ActorRef) extends Actor with TreeModel {
   import LedBehaviour._
   import ExtraColor._
 
-  override def receive = permanent(new Color(30, 0, 100))
+  override def receive = permanent(new Color(100, 240, 255))
 
   def permanent(permanentColor: Color): Receive = {
     case Blink(color) => doBlink(color)
