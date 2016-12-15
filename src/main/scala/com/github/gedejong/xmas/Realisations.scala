@@ -1,19 +1,20 @@
 package com.github.gedejong.xmas
 
 import akka.actor.{ActorSystem, Cancellable}
+import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.Http.HostConnectionPool
 import akka.http.scaladsl.model.headers.RawHeader
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest, HttpResponse}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.scaladsl.{Flow, Keep, Source}
-import akka.stream.{ActorMaterializer, ActorMaterializerSettings, ThrottleMode}
+import akka.stream.{ActorMaterializer, ActorMaterializerSettings, Supervision, ThrottleMode}
 import play.api.libs.functional.syntax._
 import play.api.libs.json.Reads._
 import play.api.libs.json._
 
 import scala.collection.immutable
-import scala.util.{Success, Try}
+import scala.util.{Random, Success, Try}
 
 case class FeatureCollection(`type`: String, srid: Int, features: Seq[Feature])
 
@@ -97,31 +98,32 @@ trait FeatureFormats {
 }
 
 object Realisations extends PlayJsonSupport with FeatureFormats {
-  implicit val system = ActorSystem("xmas-fetch-system")
-  implicit val executionContext = system.dispatcher
-  implicit val materializer = ActorMaterializer(ActorMaterializerSettings(system))
-
   import scala.concurrent.duration._
 
-  val connectionPool: Flow[(HttpRequest, Any), (Try[HttpResponse], Any), HostConnectionPool] =
+  private val pollingInterval = 20.second
+
+  private val decider: Supervision.Decider = { e => Supervision.Restart }
+
+  def connectionPool(implicit system: ActorSystem, materializer: ActorMaterializer): Flow[(HttpRequest, Any), (Try[HttpResponse], Any), HostConnectionPool] = {
     Http().newHostConnectionPoolHttps[Any](host = "dct-api-development.simacan.com")
+  }
 
 
-  val fetchFeatures: Source[FeatureCollection, (Cancellable, HostConnectionPool)] = {
-    Source.tick(0.second, 5.second, (HttpRequest(
+  def fetchFeatures(implicit system: ActorSystem): Source[FeatureCollection, (Cancellable, HostConnectionPool)] = {
+    implicit val ec = system.dispatcher
+    implicit val materializer = ActorMaterializer(ActorMaterializerSettings(system).withSupervisionStrategy(decider))
+    Source.tick(0.second, pollingInterval, (HttpRequest(
       method = HttpMethods.GET,
       uri = s"https://dct-api-development.simacan.com/api/geo/${XMasConfig.retailer}/client/realisatie",
       headers = immutable.Seq(RawHeader("Security-Token", XMasConfig.token))), None))
-      .log("realisation-tick", identity)
       .viaMat(connectionPool)(Keep.both)
-      .log("request-result", identity)
       .collect { case (Success(response), _) => Unmarshal(response.entity).to[FeatureCollection] }
       .mapAsync(1)(identity)
   }
 
-  import scala.concurrent.duration._
+  private val R = new Random()
 
-  val realisationsFlow: Source[Feature, (Cancellable, HostConnectionPool)] =
+  def realisationsFlow(implicit system: ActorSystem): Source[Feature, (Cancellable, HostConnectionPool)] =
     fetchFeatures
       .filter(fc => !fc.features.isEmpty)
         .sliding(2, 1)
@@ -130,8 +132,9 @@ object Realisations extends PlayJsonSupport with FeatureFormats {
         newFc.copy(features =
           newFc.features
             .filter(f => f.properties.timestamp > maxOldTimestamp)
-            .map(f => f.copy(properties = f.properties.copy(timestamp = f.properties.timestamp - maxOldTimestamp))))
+            .map(f => f.copy(
+              properties = f.properties.copy(
+                timestamp = f.properties.timestamp - maxOldTimestamp + R.nextInt(pollingInterval.toMillis.toInt)))))
       }
       .mapConcat[Feature](features => features.features.to[scala.collection.immutable.Seq])
-      .log("feature", identity)
 }

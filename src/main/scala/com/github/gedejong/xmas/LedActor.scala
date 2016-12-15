@@ -11,8 +11,25 @@ object LedActor {
   def props(led: Int, controller: ActorRef) = Props(classOf[LedActor], led, controller)
 }
 
+object ExtraColor {
+  implicit class PimpedTuple( tuple: (Int, Int, Int)) {
+    def asColor = new Color(tuple._1, tuple._2, tuple._3)
+  }
+
+  implicit class PimpedColor(color: Color) {
+    def asTuple = (color.getRed, color.getGreen, color.getBlue)
+
+    def +(addingColor: Color): Color =
+      new Color(
+        Math.min(255, color.getRed + addingColor.getRed),
+        Math.min(255, color.getGreen + addingColor.getGreen),
+        Math.min(255, color.getBlue + addingColor.getBlue))
+  }
+}
+
 class LedActor(led: Int, controller: ActorRef) extends Actor with TreeModel {
   import LedBehaviour._
+  import ExtraColor._
 
   override def receive = permanent(new Color(30, 0, 100))
 
@@ -27,7 +44,7 @@ class LedActor(led: Int, controller: ActorRef) extends Actor with TreeModel {
 
     case Temporary(newTemporaryColor, duration) =>
       cancellable.cancel()
-      doTemporary(permanentColor, newTemporaryColor, duration)
+      doTemporary(permanentColor, temporaryColor + newTemporaryColor, duration)
 
     case Permanent(color) => doPermanent(color)
   }

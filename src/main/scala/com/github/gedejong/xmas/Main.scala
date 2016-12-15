@@ -16,16 +16,44 @@ import shapeless.Coproduct
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.io.StdIn
+import scala.util.Random
 
 object Main extends App {
   import TreeControl._
   import LedCoordMapping._
 
+  def startupScene(commandActor: ActorRef): Source[TreeCommand, NotUsed] = {
+    val startupCommands: Seq[TreeCommand] = Seq(
+      (0 until 46).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(0, 0, 0)))),
+      (0 to 3).flatMap(_ =>
+        Seq(
+          // Simacan logo, blink
+          Seq(7, 1, 5, 8, 2, 4, 6, 9, 0, 10, 11, 3, 45, 18).map(led => Coproduct[TreeCommand](SetLed(led, new Color(14, 104, 129)))) ,
+          Seq(12, 14, 17, 13, 16, 15, 19, 20, 21, 22, 44).map(led => Coproduct[TreeCommand](SetLed(led, new Color(247, 132, 72)))) ,
+          Seq(25, 26, 23, 27, 24, 28, 29, 30, 32, 43, 31, 33).map(led => Coproduct[TreeCommand](SetLed(led, new Color(255, 201, 99)))) ,
+          Seq(36, 37, 34, 35, 42, 38, 39, 40, 41).map(led => Coproduct[TreeCommand](SetLed(led, new Color(87, 193, 94)))),
+
+            // Simacan logo, permanent
+            Seq(7, 1, 5, 8, 2, 4, 6, 9, 0, 10, 11, 3, 45, 18).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(14, 104, 129)))) ,
+          Seq(12, 14, 17, 13, 16, 15, 19, 20, 21, 22, 44).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(247, 132, 72)))) ,
+          Seq(25, 26, 23, 27, 24, 28, 29, 30, 32, 43, 31, 33).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(255, 201, 99)))) ,
+          Seq(36, 37, 34, 35, 42, 38, 39, 40, 41).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(87, 193, 94)))),
+
+          (0 until 46).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(0, 0, 0))))
+        ).flatten
+      ),
+      // Default blue background
+      (0 until 46).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(30, 0, 100))))
+    ).flatten
+
+    Source(startupCommands.to[scala.collection.immutable.Iterable])
+  }
+
   implicit val system = ActorSystem("xmas-tree-system")
   implicit val executionContext = system.dispatcher
   val log = Logging(system.eventStream, "MainLogging")
 
-  val decider: Supervision.Decider = { e =>
+  private val decider: Supervision.Decider = { e =>
     log.warning("Unhandled exception in stream", e)
     Supervision.Restart
   }
@@ -34,19 +62,21 @@ object Main extends App {
 
   import LedBehaviour._
 
+  val R = Random
+
   val featureToLedCommand: Flow[Feature, LedsCommand, NotUsed] =
     Flow[Feature].collect {
       case feature if feature.properties.activityString.toLowerCase == "lossen" =>
         val delay = feature.properties.timestamp.millis
-        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 50, 50), 2.seconds)), delay)
+        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 50, 50), 3.seconds)), delay)
 
       case feature if feature.properties.activityString.toLowerCase == "laden" =>
         val delay = feature.properties.timestamp.millis
-        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(50, 255, 50), 2.seconds)), delay)
+        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(50, 255, 50), 3.seconds)), delay)
 
       case feature =>
-        val determinedIntensity = min(130, feature.properties.speed.getOrElse(50d)) / (130d * 3d) + .66
-        val delay = feature.properties.timestamp.millis
+        val determinedIntensity = min(100, feature.properties.speed.getOrElse(50d)) / (100d * 2d) + .5
+        val delay = (feature.properties.timestamp + R.nextInt(1000)).millis
         Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Blink(                                          // TODO Please doublecheck if geometry is truly in lon lat order contains lat (and not lon)
           new Color(
             (determinedIntensity * 256).toInt,
@@ -57,7 +87,8 @@ object Main extends App {
   val commandSink: RunnableGraph[ActorRef] =
     Source.actorRef[TreeCommand](1000, OverflowStrategy.dropHead)
       .addAttributes(ActorAttributes.supervisionStrategy(decider))
-      .log("command", v => v)
+      .log("command", identity)
+      .throttle(1000, 1.second, 100, ThrottleMode.shaping)
       .via(treeCommandEncoder)
       .via(treeBinary(args(0)))
       .to(Sink.foreach(p => log.info(s"Received $p")))
@@ -120,16 +151,24 @@ object Main extends App {
       }
   val bindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8080)
 
+  // Startup scene
+  startupScene(commandActor)
+    .throttle(1, 25.millis, 1, ThrottleMode.shaping)
+    .to(Sink.actorRef(commandActor, None))
+    .run()
+
   log.info(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
   StdIn.readLine()
+
+  log.info("Cancelling realisations stream")
+  Future(cancellable.cancel())
+
   bindingFuture.flatMap(_.unbind()).onComplete { _ =>
-    log.info("Cancelling realisations stream")
-    Future(cancellable.cancel())
-    log.info("Shutting down actor system")
-    system.terminate()
-    log.info("Stopping rct connection pool")
+
+    println("Stopping rct connection pool")
     hostConnectionPool.shutdown().onComplete { _ =>
-      log.info("Stopped rct connection pool")
+      println("Stopped rct connection pool")
+      materializer.shutdown()
       system.terminate()
     }
   }
