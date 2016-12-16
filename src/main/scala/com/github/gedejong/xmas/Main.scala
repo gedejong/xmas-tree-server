@@ -43,7 +43,7 @@ object Main extends App {
         ).flatten
       ),
       // Default blue background
-      (0 until 46).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(100, 240, 255))))
+      (0 until 46).map(led => Coproduct[TreeCommand](SetLedTarget(led, new Color(20, 75, 90))))
     ).flatten
 
     Source(startupCommands.to[scala.collection.immutable.Iterable])
@@ -68,7 +68,7 @@ object Main extends App {
     Flow[Feature].collect {
       case feature if feature.properties.activityString.toLowerCase == "lossen" =>
         val delay = feature.properties.timestamp.millis
-        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 100, 255), 3.seconds)), delay)
+        Delayed(SendToLed(coordToLed(Coordinates.fromPoint(feature.geometry)), Temporary(new Color(255, 50, 255), 3.seconds)), delay)
 
       case feature if feature.properties.activityString.toLowerCase == "laden" =>
         val delay = feature.properties.timestamp.millis
