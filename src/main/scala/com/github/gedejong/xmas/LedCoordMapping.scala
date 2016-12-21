@@ -9,73 +9,39 @@ object LedCoordMapping {
   val minLatLon = LatLonDeg(51f, 4.5f)
   val maxLatLon = LatLonDeg(53f, 7f)
 
-  private[this] case class XY(x: Double, y: Double)
+  private type XY = (Double, Double)
 
-  private[this] def ledPoints: Seq[XY] = Seq(
-    XY(60, 51),
-    XY(45, 40),
-    XY(25, 44),
-    XY(0, 61),
-    XY(-20, 46),
-    XY(-40, 43),
-    XY(-83, 47),
-    XY(-90, 39),
-    XY(-120, 43),
-    XY(-160, 47),
-    XY(-180, 58),
-    XY(135, 59),
-    XY(92, 65),
-    XY(45, 69),
-    XY(30, 66),
-    XY(-20, 76),
-    XY(-55, 71),
-    XY(-95, 66),
-    XY(-145, 63),
-    XY(-180, 76),
-    XY(140, 80),
-    XY(90, 80),
-    XY(50, 82),
-    XY(20, 90),
-    XY(-20, 92),
-    XY(-70, 89),
-    XY(-115, 89),
-    XY(-150, 90),
-    XY(175, 95),
-    XY(160, 98),
-    XY(100, 110),
-    XY(65, 116),
-    XY(48, 112),
-    XY(-15, 120),
-    XY(-50, 130),
-    XY(-135, 137),
-    XY(-180, 126),
-    XY(150, 126),
-    XY(115, 145),
-    XY(45, 149),
-    XY(-2, 150),
-    XY(-33, 150),
-    XY(45, 140),
-    XY(40, 114),
-    XY(45, 85),
-    XY(80, 61)
+  private[this] val ledPoints: Seq[XY] = Stream(
+    (60, 51), (45, 40), (25, 44), (0, 61),
+    (-20, 46), (-40, 43), (-83, 47), (-90, 39),
+    (-120, 43), (-160, 47), (-180, 58), (135, 59),
+    (92, 65), (45, 69), (30, 66), (-20, 76),
+    (-55, 71), (-95, 66), (-145, 63), (-180, 76),
+    (140, 80), (90, 80), (50, 82), (20, 90),
+    (-20, 92), (-70, 89), (-115, 89), (-150, 90),
+    (175, 95), (160, 98), (100, 110), (65, 116),
+    (48, 112), (-15, 120), (-50, 130), (-135, 137),
+    (-180, 126), (150, 126), (115, 145), (45, 149),
+    (-2, 150), (-33, 150), (45, 140), (40, 114),
+    (45, 85), (80, 61)
   )
 
   val coordToLedMapping: Seq[LedCoord] = buildCoordToLedMappingFromPoints(ledPoints)
 
   def buildCoordToLedMappingFromPoints(ledPoints: Seq[XY]): Seq[LedCoord] = {
     val rawCoordToLedMapping = ledPoints.zipWithIndex
-    val rawMinX = rawCoordToLedMapping.map(_._1.x).min
-    val rawMinY = rawCoordToLedMapping.map(_._1.y).min
-    val rawMaxX = rawCoordToLedMapping.map(_._1.x).max
-    val rawMaxY = rawCoordToLedMapping.map(_._1.y).max
+    val rawMinX = rawCoordToLedMapping.map(_._1._1).min
+    val rawMinY = rawCoordToLedMapping.map(_._1._2).min
+    val rawMaxX = rawCoordToLedMapping.map(_._1._1).max
+    val rawMa = rawCoordToLedMapping.map(_._1._2).max
 
     val zoomLevel = 0.0
     val boundsBottomLeft = minLatLon.toPseudoMercator(zoomLevel)
     val boundsTopRight = maxLatLon.toPseudoMercator(zoomLevel)
 
-    rawCoordToLedMapping.map { case (XY(x, y), led) =>
+    rawCoordToLedMapping.map { case ((x, y), led) =>
       val coordX = mapValueToBounds(x, rawMinX, rawMaxX, boundsBottomLeft.x, boundsTopRight.x)
-      val coordY = mapValueToBounds(y, rawMinY, rawMaxY, boundsTopRight.y, boundsBottomLeft.y)
+      val coordY = mapValueToBounds(y, rawMinY, rawMa, boundsTopRight.y, boundsBottomLeft.y)
       LedCoord(led, PseudoMercator(coordX, coordY, zoomLevel))
     }.sortBy(lc => lc.coord.y -> lc.coord.x)
   }
@@ -100,5 +66,5 @@ object LedCoordMapping {
     }.led
   }
 
-  def ledCount = coordToLedMapping.length
+  val ledCount = coordToLedMapping.length
 }

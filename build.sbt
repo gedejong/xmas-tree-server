@@ -41,7 +41,14 @@ libraryDependencies ++= Seq(
 
   // Akka
   "com.typesafe.akka" %% "akka-slf4j" % "2.4.14",
+  "com.typesafe.akka" %% "akka-testkit" % "2.4.14",
 
 // Logging
-  "ch.qos.logback" % "logback-classic" % "1.1.3"
+  "ch.qos.logback" % "logback-classic" % "1.1.3",
+
+  // Spire (math)
+  "org.spire-math" % "spire_2.12" % "0.13.0",
+
+  // Testing
+  "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 )

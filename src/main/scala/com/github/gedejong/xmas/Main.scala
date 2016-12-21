@@ -106,32 +106,32 @@ object Main extends App {
 
   val route =
     pathPrefix("led" / IntNumber) { led =>
-      path("color") {
+      path("blink") {
         post {
           parameters(('red.as[Int], 'green.as[Int], 'blue.as[Int])) {
             case (red, green, blue) =>
               complete {
-                val command = Coproduct[TreeCommand](SetLed(led, new Color(red, green, blue)))
-                commandActor ! command
+                val command = SendToLed(led, Blink(new Color(red, green, blue)))
+                ledsActor ! command
                 HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>Send command $command</h1>")
               }
           } ~
             parameters('color.as[String]) { color =>
               complete {
-                val command = Coproduct[TreeCommand](SetLed(led, Color.decode(color)))
-                commandActor ! command
+                val command = SendToLed(led, Blink(Color.decode(color)))
+                ledsActor ! command
                 HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>Send command $command</h1>")
               }
             }
         }
       } ~
-        path("targetcolor") {
+        path("permanent") {
           post {
             parameters(('red.as[Int], 'green.as[Int], 'blue.as[Int])) {
               case (red, green, blue) =>
                 complete {
-                  val command = Coproduct[TreeCommand](SetLedTarget(led, new Color(red, green, blue)))
-                  commandActor ! command
+                  val command = SendToLed(led, Permanent(new Color(red, green, blue)))
+                  ledsActor ! command
                   HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>Send command $command</h1>")
                 }
             }
