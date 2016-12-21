@@ -1,6 +1,5 @@
 package com.github.gedejong.xmas
 
-import akka.NotUsed
 import akka.stream._
 import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Source}
 import akka.stream.stage._
@@ -17,25 +16,29 @@ object ExtraFlow {
     def cacheMat[Out2, Mat2, Mat3](cacheFlow: Flow[In, (In, Out2), Mat2])(combineMat: (Mat, Mat2) => Mat3): Source[Out2, Mat3] = {
       Source.fromGraph(
         GraphDSL.create(s, cacheFlow)(combineMat) { implicit b =>
-          (s2: Source[In, Mat]#Shape, cacheFlow2: Flow[In, (In, Out2), Mat2]#Shape) =>
+          (s2, cacheFlow2) =>
             import GraphDSL.Implicits._
             val cachingGraphStage = b.add(new CachingGraphStage[In, Out2])
-            s2.out ~> cachingGraphStage.requestIn
-            cachingGraphStage.requestCacheIn ~> cacheFlow2.in
-            cacheFlow2.out ~> cachingGraphStage.responseCacheOut
+            s2 ~> cachingGraphStage.requestIn
+            cachingGraphStage.requestCacheIn ~> cacheFlow2 ~> cachingGraphStage.responseCacheOut
             SourceShape(cachingGraphStage.responseOut)
         })
     }
   }
 
-  implicit class FlowCaching[In, Out, Mat](s: Flow[In, Out, Mat]) {
-    def cache[Out2](cacheFlow: Flow[Out, (Out, Out2), Mat]): Flow[Out, Out2, NotUsed] = {
-      Flow.fromGraph(GraphDSL.create() { implicit b =>
-        import GraphDSL.Implicits._
-        val cachingGraphStage = new CachingGraphStage[Out, Out2]
-        cachingGraphStage.requestCache ~> cacheFlow ~> cachingGraphStage.responseCache
-        FlowShape(cachingGraphStage.in, cachingGraphStage.out)
-      })
+  implicit class FlowCaching[In, Out, Mat](flow: Flow[In, Out, Mat]) {
+    def cache[Out2, Mat2](cacheFlow: Flow[Out, (Out, Out2), Mat2]): Flow[In, Out2, Mat] = cacheMat(cacheFlow)(Keep.left)
+
+    def cacheMat[Out2, Mat2, Mat3](cacheFlow: Flow[Out, (Out, Out2), Mat2])(combineMat: (Mat, Mat2) => Mat3): Flow[In, Out2, Mat3] = {
+      Flow.fromGraph(
+        GraphDSL.create(flow, cacheFlow)(combineMat) { implicit b =>
+          (flow2, cacheFlow2) =>
+            import GraphDSL.Implicits._
+            val cachingGraphStage = b.add(new CachingGraphStage[Out, Out2])
+            flow2.out ~> cachingGraphStage.requestIn
+            cachingGraphStage.requestCacheIn ~> cacheFlow2 ~> cachingGraphStage.responseCacheOut
+            FlowShape(flow2.in, cachingGraphStage.responseOut)
+        })
     }
   }
 
@@ -85,11 +88,15 @@ class CachingGraphStage[A, B] extends GraphStage[CachingShape[A, B]] {
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new GraphStageLogic(shape) with StageLogging {
       val cached: mutable.Map[A, B] = mutable.Map[A, B]()
-      var waiting: List[A] = List[A]()
+      var waitingForCacheLineResult: List[A] = List[A]()
       var cacheLineWaiting: mutable.Queue[A] = mutable.Queue()
       var outQueue: mutable.Queue[B] = mutable.Queue()
 
       setHandler(shape.requestIn, new InHandler {
+        override def onUpstreamFinish() = {
+          checkForComplete()
+        }
+
         override def onPush(): Unit = {
           val a = grab(shape.requestIn)
 
@@ -100,9 +107,9 @@ class CachingGraphStage[A, B] extends GraphStage[CachingShape[A, B]] {
             if (isAvailable(shape.responseOut)) {
               push(shape.responseOut, outQueue.dequeue())
             }
-          } else if (!waiting.contains(a)) {
+          } else if (!waitingForCacheLineResult.contains(a)) {
             log.debug("Is not yet cached, and not waiting: {}", a)
-            waiting = a :: waiting
+            waitingForCacheLineResult = a :: waitingForCacheLineResult
             cacheLineWaiting.enqueue(a)
             if (isAvailable(shape.requestCacheIn)) {
               log.debug("Pushing to cacheline: {}", a)
@@ -111,25 +118,46 @@ class CachingGraphStage[A, B] extends GraphStage[CachingShape[A, B]] {
               log.debug("CacheLineWaiting: {}", a)
             }
           } else {
-            waiting = a :: waiting
+            waitingForCacheLineResult = a :: waitingForCacheLineResult
             log.debug("Is not yet cached, adding to waiting: {}", a)
           }
           pull(shape.requestIn)
         }
       })
 
+      def checkForComplete(): Unit = {
+        if (log.isDebugEnabled) {
+          log.debug(
+            s"Check for complete: ${waitingForCacheLineResult.size}, ${outQueue.size}, ${cacheLineWaiting.size}")
+        }
+        if (waitingForCacheLineResult.isEmpty &&
+          outQueue.isEmpty &&
+          cacheLineWaiting.isEmpty &&
+          isClosed(shape.requestIn)) {
+
+          log.debug("We are complete!")
+          complete(shape.responseOut)
+          complete(shape.requestCacheIn)
+        }
+      }
+
       setHandler(shape.responseCacheOut, new InHandler {
+        override def onUpstreamFinish() = {
+          checkForComplete()
+        }
+
         override def onPush(): Unit = {
           val (a, b) = grab(shape.responseCacheOut)
-          log.debug("Retreived key-value: {} -> {}", a, b)
-          waiting.filter(_ == a).foreach(_ => outQueue.enqueue(b))
-          waiting = waiting.filter(_ != a)
+          log.debug("Retrieved key-value: {} -> {}", a, b)
+          waitingForCacheLineResult.filter(_ == a).foreach(_ => outQueue.enqueue(b))
+          waitingForCacheLineResult = waitingForCacheLineResult.filter(_ != a)
           cached += a -> b
 
           if (isAvailable(shape.responseOut)) {
             log.debug("Pushing to out: {}", b)
             push(shape.responseOut, outQueue.dequeue())
           }
+          checkForComplete()
           pull(shape.responseCacheOut)
         }
       })
@@ -148,14 +176,19 @@ class CachingGraphStage[A, B] extends GraphStage[CachingShape[A, B]] {
         override def onPull(): Unit = {
           if (outQueue.nonEmpty) {
             push(shape.responseOut, outQueue.dequeue())
+            checkForComplete()
+          } else {
+            if (!hasBeenPulled(shape.requestIn) &&
+              !isClosed(shape.requestIn)) {
+              pull(shape.requestIn)
+            }
+            if (!hasBeenPulled(shape.responseCacheOut) &&
+              !isClosed(shape.responseCacheOut)) {
+              pull(shape.responseCacheOut)
+            }
           }
-          if (!hasBeenPulled(shape.responseCacheOut))
-            pull(shape.responseCacheOut)
-          if (!hasBeenPulled(shape.requestIn))
-            pull(shape.requestIn)
         }
       })
-
     }
 }
 

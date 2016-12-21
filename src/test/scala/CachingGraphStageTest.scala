@@ -1,4 +1,3 @@
-import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, DelayOverflowStrategy, OverflowStrategy}
@@ -31,6 +30,13 @@ class CachingGraphStageTest() extends TestKit(ActorSystem("MySpec")) with Implic
       .cache(slowRequester)
       .to(Sink.actorRef(self, None))
 
+    def testGraphSeq(seq: Seq[String]) =
+      Source.apply[String](seq.to[scala.collection.immutable.Iterable])
+          .log("numbers-source")
+      .cache(slowRequester)
+        .log("cached-results")
+      .to(Sink.actorRef(self, None))
+
     "basic logic" in {
 
       val actorRef = testGraph.run
@@ -53,7 +59,7 @@ class CachingGraphStageTest() extends TestKit(ActorSystem("MySpec")) with Implic
       val actorRef = testGraph.run
 
       // Send a thousand times test. Should cache first and return quickly afterwards
-      for (i <- 0 to 5000) actorRef ! "test"
+      for (_ <- 0 to 5000) actorRef ! "test"
 
       within(100.millis, 1000.millis) {
         val receivedInts = receiveN(5000).map(_.asInstanceOf[Int])
@@ -69,6 +75,18 @@ class CachingGraphStageTest() extends TestKit(ActorSystem("MySpec")) with Implic
       // Send a thousand times test. Should cache first and return quickly afterwards
       val n = 50
       for (i <- 0 to n) actorRef ! i.toString
+
+      within(100.millis, 6000.millis) {
+        // Should take around 5 seconds to get everything from cache
+        val receivedInts = receiveN(n).map(_.asInstanceOf[Int])
+        receivedInts.length should be (n)
+      } // First is not cached
+    }
+
+    "stress test, sequence completion, nothing cached" in {
+
+      val n = 10
+      testGraphSeq((0 to n).map(_.toString)).run
 
       within(100.millis, 6000.millis) {
         // Should take around 5 seconds to get everything from cache
