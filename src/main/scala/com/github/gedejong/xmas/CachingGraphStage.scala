@@ -1,5 +1,6 @@
 package com.github.gedejong.xmas
 
+import akka.NotUsed
 import akka.stream._
 import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Source}
 import akka.stream.stage._
@@ -28,7 +29,7 @@ object ExtraFlow {
   }
 
   implicit class FlowCaching[In, Out, Mat](s: Flow[In, Out, Mat]) {
-    def cache[Out2](cacheFlow: Flow[Out, (Out, Out2), Mat]) = {
+    def cache[Out2](cacheFlow: Flow[Out, (Out, Out2), Mat]): Flow[Out, Out2, NotUsed] = {
       Flow.fromGraph(GraphDSL.create() { implicit b =>
         import GraphDSL.Implicits._
         val cachingGraphStage = new CachingGraphStage[Out, Out2]
@@ -65,7 +66,11 @@ case class CachingShape[A, B](
     assert(inlets.size == this.inlets.size)
     assert(outlets.size == this.outlets.size)
     // This is why order matters when overriding inlets and outlets.
-    CachingShape[A, B](inlets(0).as[A], outlets(0).as[B], outlets(1).as[A], inlets(1).as[(A, B)])
+    CachingShape[A, B](
+      requestIn = inlets.head.as[A],
+      responseOut = outlets.head.as[B],
+      requestCacheIn = outlets(1).as[A],
+      responseCacheOut = inlets(1).as[(A, B)])
   }
 }
 
@@ -79,10 +84,10 @@ class CachingGraphStage[A, B] extends GraphStage[CachingShape[A, B]] {
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
     new GraphStageLogic(shape) with StageLogging {
-      val cached = mutable.Map[A, B]()
-      val waiting = mutable.Set[A]()
-      var cacheLineWaiting: Option[A] = None
-      var outWaiting: Option[B] = None
+      val cached: mutable.Map[A, B] = mutable.Map[A, B]()
+      var waiting: List[A] = List[A]()
+      var cacheLineWaiting: mutable.Queue[A] = mutable.Queue()
+      var outQueue: mutable.Queue[B] = mutable.Queue()
 
       setHandler(shape.requestIn, new InHandler {
         override def onPush(): Unit = {
@@ -91,61 +96,64 @@ class CachingGraphStage[A, B] extends GraphStage[CachingShape[A, B]] {
           log.debug("Grabbed: {}", a)
           if (cached.contains(a)) {
             log.debug("Is already cached: {}", a)
+            outQueue.enqueue(cached(a))
             if (isAvailable(shape.responseOut)) {
-              push(shape.responseOut, cached(a))
-            } else {
-              outWaiting = Some(cached(a))
+              push(shape.responseOut, outQueue.dequeue())
             }
-          } else if (!waiting(a)) {
+          } else if (!waiting.contains(a)) {
             log.debug("Is not yet cached, and not waiting: {}", a)
-            if (isAvailable((shape.requestCacheIn))) {
-              log.debug("Pushing: {}", a)
-              push(shape.requestCacheIn, a)
+            waiting = a :: waiting
+            cacheLineWaiting.enqueue(a)
+            if (isAvailable(shape.requestCacheIn)) {
+              log.debug("Pushing to cacheline: {}", a)
+              push(shape.requestCacheIn, cacheLineWaiting.dequeue())
             } else {
               log.debug("CacheLineWaiting: {}", a)
-              cacheLineWaiting = Some(a)
             }
+          } else {
+            waiting = a :: waiting
+            log.debug("Is not yet cached, adding to waiting: {}", a)
           }
+          pull(shape.requestIn)
         }
       })
 
       setHandler(shape.responseCacheOut, new InHandler {
-        override def onPush() = {
+        override def onPush(): Unit = {
           val (a, b) = grab(shape.responseCacheOut)
           log.debug("Retreived key-value: {} -> {}", a, b)
-          waiting -= a
+          waiting.filter(_ == a).foreach(_ => outQueue.enqueue(b))
+          waiting = waiting.filter(_ != a)
           cached += a -> b
+
           if (isAvailable(shape.responseOut)) {
-            log.debug("Pushing: {}", b)
-            push(shape.responseOut, b)
-          } else {
-            log.debug("OutWaiting : {}", b)
-            outWaiting = Some(b)
+            log.debug("Pushing to out: {}", b)
+            push(shape.responseOut, outQueue.dequeue())
           }
+          pull(shape.responseCacheOut)
         }
       })
 
       setHandler(shape.requestCacheIn, new OutHandler {
         override def onPull(): Unit = {
-          cacheLineWaiting match {
-            case Some(a) =>
-              push(shape.requestCacheIn, a)
-              cacheLineWaiting = None
-            case None =>
-              pull(shape.requestIn)
+          if (cacheLineWaiting.nonEmpty) {
+            push(shape.requestCacheIn, cacheLineWaiting.dequeue())
           }
+          if (!hasBeenPulled(shape.requestIn))
+            pull(shape.requestIn)
         }
       })
 
       setHandler(shape.responseOut, new OutHandler {
-        override def onPull(): Unit =
-          outWaiting match {
-            case Some(b) =>
-              push(shape.responseOut, b)
-              outWaiting = None
-            case None =>
-              pull(shape.responseCacheOut)
+        override def onPull(): Unit = {
+          if (outQueue.nonEmpty) {
+            push(shape.responseOut, outQueue.dequeue())
           }
+          if (!hasBeenPulled(shape.responseCacheOut))
+            pull(shape.responseCacheOut)
+          if (!hasBeenPulled(shape.requestIn))
+            pull(shape.requestIn)
+        }
       })
 
     }
